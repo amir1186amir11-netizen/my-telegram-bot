@@ -10,16 +10,16 @@ from telegram.ext import (
 )
 
 # ==============================
-# 🔑 تنظیمات پیکربندی
+# 🔑 CONFIGURATION
 # ==============================
-# توکن را از متغیر محیطی بخوانید
+# Get token from environment variable (secure!)
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not BOT_TOKEN:
-    raise ValueError("لطفاً متغیر محیطی TELEGRAM_BOT_TOKEN را تنظیم کنید!")
+    raise ValueError("Please set TELEGRAM_BOT_TOKEN environment variable!")
 
 ADMIN_PASSWORD = "1186"
 
-# رمز کشورها (چهاررقمی، منحصر به فرد)
+# Country passwords (4-digit unique codes)
 COUNTRY_PASSWORDS = {
     "United States 🇺🇸": "1776",
     "Britain 🇬🇧": "2021",
@@ -43,7 +43,7 @@ COUNTRY_PASSWORDS = {
     "Spain 🇪🇸": "1492"
 }
 
-# بودجه اولیه هر کشور
+# Initial budgets (in USD)
 INITIAL_BUDGETS = {
     "United States 🇺🇸": 1_200_000_000,
     "Britain 🇬🇧": 1_000_000_000,
@@ -67,7 +67,7 @@ INITIAL_BUDGETS = {
     "Spain 🇪🇸": 600_000_000
 }
 
-# منابع هر کشور
+# Country resources (only these 6 types)
 COUNTRY_RESOURCES = {
     "United States 🇺🇸": ["Iron", "Aluminum", "Copper", "Gold", "Platinum", "Uranium"],
     "Britain 🇬🇧": ["Iron", "Aluminum", "Gold", "Uranium"],
@@ -91,7 +91,7 @@ COUNTRY_RESOURCES = {
     "Spain 🇪🇸": ["Iron", "Copper", "Gold", "Platinum"]
 }
 
-# سازه‌های اولیه غیرشهری
+# Initial non-city structures
 INITIAL_STRUCTURES = {
     "United States 🇺🇸": {"civilian_factory": 5, "military_factory": 5, "missile_launcher": 10, "warehouse": 2},
     "Britain 🇬🇧": {"civilian_factory": 4, "military_factory": 3, "missile_launcher": 5, "warehouse": 2},
@@ -115,7 +115,7 @@ INITIAL_STRUCTURES = {
     "Spain 🇪🇸": {"civilian_factory": 3, "military_factory": 3, "missile_launcher": 4, "warehouse": 2}
 }
 
-# نیروهای اولیه ارتش
+# Initial army texts (realistic minimal forces)
 INITIAL_ARMY_TEXTS = {
     "United States 🇺🇸": "Air: 2× F-22 Raptor, 2× F-35 | Ground: 5× M1 Abrams | Navy: 1× Arleigh Burke-class",
     "Britain 🇬🇧": "Air: 2× Eurofighter Typhoon | Ground: 5× Challenger 2 | Navy: 1× Type 45 destroyer",
@@ -139,7 +139,7 @@ INITIAL_ARMY_TEXTS = {
     "Spain 🇪🇸": "Air: 2× Eurofighter | Ground: 10× Leopard 2E | Navy: 1× Álvaro de Bazán frigate"
 }
 
-# تعاریف سازه‌ها
+# Structure definitions
 NON_CITY_STRUCTURES = {
     "civilian_factory": {"name": "Civilian Factory 🏭", "cost": 1_000_000, "time_hours": 6},
     "military_factory": {"name": "Military Factory 🪖", "cost": 1_200_000, "time_hours": 8},
@@ -154,7 +154,7 @@ CITY_STRUCTURES = {
     "dock": {"name": "Dock ⚓", "cost": 20_000_000, "time_hours": 48}
 }
 
-# تعاریف معدن‌ها
+# Mine definitions (resource, cost, production_time_hours, yield)
 MINES = {
     "Uranium": {"cost": 20_000_000, "time_hours": 5, "yield": 0.5},
     "Gold": {"cost": 10_000_000, "time_hours": 3, "yield": 1},
@@ -165,10 +165,10 @@ MINES = {
 }
 
 # ==============================
-# 🗃️ راه‌اندازی پایگاه داده
+# 🗃️ DATABASE SETUP
 # ==============================
 async def init_db():
-    """ایجاد جداول مورد نیاز در SQLite"""
+    """Initialize SQLite database with required tables"""
     async with aiosqlite.connect("game.db") as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -183,6 +183,7 @@ async def init_db():
                 state_data TEXT
             )
         """)
+        
         await db.execute("""
             CREATE TABLE IF NOT EXISTS structures (
                 user_id INTEGER,
@@ -191,6 +192,7 @@ async def init_db():
                 PRIMARY KEY (user_id, type)
             )
         """)
+        
         await db.execute("""
             CREATE TABLE IF NOT EXISTS resources (
                 user_id INTEGER,
@@ -199,6 +201,7 @@ async def init_db():
                 PRIMARY KEY (user_id, resource_type)
             )
         """)
+        
         await db.execute("""
             CREATE TABLE IF NOT EXISTS mines (
                 user_id INTEGER,
@@ -207,6 +210,7 @@ async def init_db():
                 PRIMARY KEY (user_id, resource_type)
             )
         """)
+        
         await db.execute("""
             CREATE TABLE IF NOT EXISTS construction_queue (
                 user_id INTEGER,
@@ -215,67 +219,90 @@ async def init_db():
                 PRIMARY KEY (user_id, structure_type)
             )
         """)
+        
         await db.commit()
 
 # ==============================
-# 🧠 توابع کمکی
+# 🧠 HELPER FUNCTIONS
 # ==============================
 async def get_admin_user_id():
-    """دریافت شناسه کاربر ادمین"""
+    """Get admin user ID from database"""
     async with aiosqlite.connect("game.db") as db:
         async with db.execute("SELECT user_id FROM users WHERE is_admin = 1") as cursor:
             row = await cursor.fetchone()
             return row[0] if row else None
 
 async def get_country_by_user(user_id):
-    """دریافت نام کشور کاربر"""
+    """Get country name for user"""
     async with aiosqlite.connect("game.db") as db:
         async with db.execute("SELECT country FROM users WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else None
 
 async def get_occupied_countries():
-    """لیست کشورهای اشغال‌شده"""
+    """Get list of occupied countries (excluding admin)"""
     async with aiosqlite.connect("game.db") as db:
         async with db.execute("SELECT country FROM users WHERE country IS NOT NULL AND is_admin = 0") as cursor:
-            return [row[0] for row in await cursor.fetchall()]
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
 
 async def send_to_admin(context, message):
-    """ارسال پیام به ادمین"""
+    """Send message to admin if exists"""
     admin_id = await get_admin_user_id()
     if admin_id:
         try:
             await context.bot.send_message(chat_id=admin_id, text=message)
         except Exception as e:
-            print(f"ارسال به ادمین شکست خورد: {e}")
+            print(f"Failed to send to admin: {e}")
 
 # ==============================
-# 🌐 مدیریت ورود
+# 🌐 MAIN HANDLERS
 # ==============================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دستور شروع"""
-    await update.message.reply_text("رمز عبور را وارد کنید:")
+    """Handle /start command"""
+    await update.message.reply_text("Enter the password:")
+
+# The original code had two separate MessageHandlers that overlapped.
+# We'll provide a single text handler that dispatches to either password handling
+# (first-time / login) or message/attack handling depending on DB state.
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Dispatch text messages: either password/login or normal message/attack"""
+    user_id = update.effective_user.id
+    # Check user state in DB
+    async with aiosqlite.connect("game.db") as db:
+        async with db.execute("SELECT state FROM users WHERE user_id = ?", (user_id,)) as cursor:
+            row = await cursor.fetchone()
+            state = row[0] if row else 'start'
+    # If user not registered or state is 'start', treat text as password attempt
+    if state == 'start':
+        await handle_password(update, context)
+    else:
+        # Otherwise treat as regular message text (message/attack/research/army requests etc.)
+        await handle_message_text(update, context)
 
 async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت ورود با رمز"""
+    """Handle password entry"""
     user_id = update.effective_user.id
     password = update.message.text.strip()
     
-    # چک کردن اینکه آیا کاربر قبلاً وارد شده
+    # Check if already logged in
     async with aiosqlite.connect("game.db") as db:
         async with db.execute("SELECT country, is_admin FROM users WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
             if row and (row[0] or row[1]):
+                # Already logged in
                 await show_main_menu(update, context)
                 return
-
-    # چک کردن رمز ادمین
+    
+    # Check admin password
     if password == ADMIN_PASSWORD:
         async with aiosqlite.connect("game.db") as db:
+            # Check if admin already exists
             async with db.execute("SELECT user_id FROM users WHERE is_admin = 1") as cursor:
                 if await cursor.fetchone():
-                    await update.message.reply_text("ادمین قبلاً وجود دارد!")
+                    await update.message.reply_text("Admin slot already occupied!")
                     return
+            
             await db.execute(
                 "INSERT OR REPLACE INTO users (user_id, is_admin, state) VALUES (?, 1, 'admin_menu')",
                 (user_id,)
@@ -283,16 +310,18 @@ async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await db.commit()
             await show_admin_menu(update, context)
             return
-
-    # چک کردن رمز کشورها
+    
+    # Check country passwords
     for country, pwd in COUNTRY_PASSWORDS.items():
         if password == pwd:
             async with aiosqlite.connect("game.db") as db:
+                # Check if country is occupied
                 async with db.execute("SELECT user_id FROM users WHERE country = ?", (country,)) as cursor:
                     if await cursor.fetchone():
-                        await update.message.reply_text(f"کشور {country} قبلاً اشغال شده است!")
+                        await update.message.reply_text(f"Country {country} is already occupied!")
                         return
                 
+                # Initialize user
                 balance = INITIAL_BUDGETS[country]
                 army_text = INITIAL_ARMY_TEXTS[country]
                 
@@ -303,17 +332,17 @@ async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     (user_id, country, balance, army_text)
                 )
                 
-                # ایجاد سازه‌های اولیه
+                # Initialize structures
                 for struct_type, count in INITIAL_STRUCTURES[country].items():
                     await db.execute(
-                        "INSERT INTO structures (user_id, type, count) VALUES (?, ?, ?)",
+                        "INSERT OR REPLACE INTO structures (user_id, type, count) VALUES (?, ?, ?)",
                         (user_id, struct_type, count)
                     )
                 
-                # ایجاد منابع اولیه
+                # Initialize resources (start with 0)
                 for resource in COUNTRY_RESOURCES[country]:
                     await db.execute(
-                        "INSERT INTO resources (user_id, resource_type, amount) VALUES (?, ?, 0)",
+                        "INSERT OR REPLACE INTO resources (user_id, resource_type, amount) VALUES (?, ?, 0)",
                         (user_id, resource)
                     )
                 
@@ -321,13 +350,10 @@ async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await show_main_menu(update, context)
                 return
     
-    await update.message.reply_text("رمز نامعتبر است!")
+    await update.message.reply_text("Invalid password!")
 
-# ==============================
-# 🧭 منوی اصلی
-# ==============================
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش منوی اصلی کاربر"""
+    """Show main menu for country user"""
     keyboard = [
         [InlineKeyboardButton("Profile", callback_data="profile")],
         [InlineKeyboardButton("Non-City Structures", callback_data="non_city_structures")],
@@ -341,13 +367,14 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    # If called from callback_query, edit; else send new message
     if update.callback_query:
         await update.callback_query.message.edit_text("Main Menu:", reply_markup=reply_markup)
     else:
         await update.message.reply_text("Main Menu:", reply_markup=reply_markup)
 
 async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش منوی ادمین"""
+    """Show admin menu"""
     keyboard = [
         [InlineKeyboardButton("Resources", callback_data="admin_resources")],
         [InlineKeyboardButton("Manage Structures", callback_data="admin_structures")],
@@ -362,25 +389,29 @@ async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Admin Panel:", reply_markup=reply_markup)
 
 # ==============================
-# 🏗️ ساخت سازه
+# 🏗️ STRUCTURE HANDLERS
 # ==============================
 async def show_non_city_structures(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش سازه‌های غیرشهری"""
+    """Show non-city structures menu"""
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
     async with aiosqlite.connect("game.db") as db:
+        # Get current counts
         counts = {}
         async with db.execute("SELECT type, count FROM structures WHERE user_id = ?", (user_id,)) as cursor:
-            async for row in cursor:
+            rows = await cursor.fetchall()
+            for row in rows:
                 counts[row[0]] = row[1]
         
+        # Build message
         text = "Non-City Structures:\n"
         for struct_id, struct_info in NON_CITY_STRUCTURES.items():
             count = counts.get(struct_id, 0)
             text += f"- {struct_info['name']}: {count}\n"
         
+        # Build keyboard
         keyboard = []
         for struct_id, struct_info in NON_CITY_STRUCTURES.items():
             keyboard.append([InlineKeyboardButton(
@@ -392,25 +423,37 @@ async def show_non_city_structures(update: Update, context: ContextTypes.DEFAULT
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def build_non_city_structure(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ساخت سازه غیرشهری"""
+    """Handle non-city structure construction"""
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
-    struct_id = query.data.split("_")[-1]
-    struct_info = NON_CITY_STRUCTURES[struct_id]
+    # safer extraction: remove prefix
+    prefix = "build_non_city_"
+    if not query.data.startswith(prefix):
+        await query.edit_message_text("Invalid request!")
+        return
+    struct_id = query.data[len(prefix):]  # keep full id like 'civilian_factory'
+    struct_info = NON_CITY_STRUCTURES.get(struct_id)
+    if not struct_info:
+        await query.edit_message_text("Unknown structure!")
+        return
     
     async with aiosqlite.connect("game.db") as db:
+        # Check balance
         async with db.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)) as cursor:
-            balance = (await cursor.fetchone())[0]
+            row = await cursor.fetchone()
+            balance = row[0] if row else 0
         
         if balance < struct_info['cost']:
-            await query.edit_message_text("موجودی کافی نیست!")
+            await query.edit_message_text("Insufficient funds!")
             return
         
+        # Deduct cost
         new_balance = balance - struct_info['cost']
         await db.execute("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, user_id))
         
+        # Add to construction queue
         completion_time = datetime.utcnow() + timedelta(hours=struct_info['time_hours'])
         await db.execute(
             """INSERT OR REPLACE INTO construction_queue 
@@ -420,31 +463,38 @@ async def build_non_city_structure(update: Update, context: ContextTypes.DEFAULT
         )
         await db.commit()
         
+        # Notify user
         completion_str = completion_time.strftime("%Y-%m-%d %H:%M UTC")
         await query.edit_message_text(
-            f"ساخت آغاز شد!\n"
-            f"{struct_info['name']} در {completion_str} آماده می‌شود\n"
-            f"هزینه: ${struct_info['cost']:,}"
+            f"Construction started!\n"
+            f"{struct_info['name']} will be ready at {completion_str}\n"
+            f"Cost: ${struct_info['cost']:,}"
         )
 
 # ==============================
-# ⛏️ ساخت معدن
+# ⛏️ MINE HANDLERS
 # ==============================
 async def show_mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش منوی معدن"""
+    """Show mines menu"""
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
     country = await get_country_by_user(user_id)
-    available_resources = COUNTRY_RESOURCES[country]
+    if not country:
+        await query.edit_message_text("Country not found!")
+        return
+    available_resources = COUNTRY_RESOURCES.get(country, [])
     
     async with aiosqlite.connect("game.db") as db:
+        # Get current mines
         current_mines = []
         async with db.execute("SELECT resource_type FROM mines WHERE user_id = ?", (user_id,)) as cursor:
-            async for row in cursor:
+            rows = await cursor.fetchall()
+            for row in rows:
                 current_mines.append(row[0])
         
+        # Build message
         text = "Your Mines:\n"
         if current_mines:
             for res in current_mines:
@@ -452,6 +502,7 @@ async def show_mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             text += "None\n"
         
+        # Build keyboard
         keyboard = []
         for resource in available_resources:
             keyboard.append([InlineKeyboardButton(
@@ -463,25 +514,36 @@ async def show_mines(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def build_mine(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ساخت معدن"""
+    """Handle mine construction"""
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
-    resource = query.data.split("_")[-1]
-    mine_info = MINES[resource]
+    prefix = "build_mine_"
+    if not query.data.startswith(prefix):
+        await query.edit_message_text("Invalid request!")
+        return
+    resource = query.data[len(prefix):]
+    mine_info = MINES.get(resource)
+    if not mine_info:
+        await query.edit_message_text("Unknown resource!")
+        return
     
     async with aiosqlite.connect("game.db") as db:
+        # Check balance
         async with db.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)) as cursor:
-            balance = (await cursor.fetchone())[0]
+            row = await cursor.fetchone()
+            balance = row[0] if row else 0
         
         if balance < mine_info['cost']:
-            await query.edit_message_text("موجودی کافی نیست!")
+            await query.edit_message_text("Insufficient funds!")
             return
         
+        # Deduct cost
         new_balance = balance - mine_info['cost']
         await db.execute("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, user_id))
         
+        # Add mine
         next_yield = datetime.utcnow() + timedelta(hours=mine_info['time_hours'])
         await db.execute(
             """INSERT OR REPLACE INTO mines 
@@ -490,6 +552,7 @@ async def build_mine(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (user_id, resource, next_yield.isoformat())
         )
         
+        # Initialize resource if not exists
         await db.execute(
             "INSERT OR IGNORE INTO resources (user_id, resource_type, amount) VALUES (?, ?, 0)",
             (user_id, resource)
@@ -497,16 +560,16 @@ async def build_mine(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await db.commit()
         
         await query.edit_message_text(
-            f"معدن ساخته شد!\n"
-            f"اولین تولید در {mine_info['time_hours']} ساعت\n"
-            f"هزینه: ${mine_info['cost']:,}"
+            f"Mine built!\n"
+            f"First yield in {mine_info['time_hours']} hours\n"
+            f"Cost: ${mine_info['cost']:,}"
         )
 
 # ==============================
-# 💬 جلسه دیپلماتیک
+# 💬 SESSION HANDLERS
 # ==============================
 async def show_session_countries(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش کشورهای قابل جلسه"""
+    """Show countries for session request"""
     query = update.callback_query
     await query.answer()
     
@@ -516,48 +579,55 @@ async def show_session_countries(update: Update, context: ContextTypes.DEFAULT_T
     targets = [c for c in occupied if c != country]
     
     if not targets:
-        await query.edit_message_text("کشور دیگری وجود ندارد!")
+        await query.edit_message_text("No other countries occupied!")
         return
     
     keyboard = [[InlineKeyboardButton(c, callback_data=f"session_req_{c}")] for c in targets]
     keyboard.append([InlineKeyboardButton("Back", callback_data="main_menu")])
-    await query.edit_message_text("کشور را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text("Select country for session:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def handle_session_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت درخواست جلسه"""
+    """Handle session request"""
     query = update.callback_query
     await query.answer()
     
     requester_id = query.from_user.id
-    target_country = query.data.split("_")[-1]
+    prefix = "session_req_"
+    if not query.data.startswith(prefix):
+        await query.edit_message_text("Invalid request!")
+        return
+    target_country = query.data[len(prefix):]
     
+    # Get target user ID
     async with aiosqlite.connect("game.db") as db:
         async with db.execute("SELECT user_id FROM users WHERE country = ?", (target_country,)) as cursor:
             row = await cursor.fetchone()
             if not row:
-                await query.edit_message_text("کشور یافت نشد!")
+                await query.edit_message_text("Country not found!")
                 return
             target_id = row[0]
     
+    # Store pending request
     context.bot_data[f"pending_session_{target_id}"] = requester_id
     requester_country = await get_country_by_user(requester_id)
     
+    # Notify target
     keyboard = [
         [InlineKeyboardButton("Accept", callback_data=f"session_accept_{requester_country}")],
         [InlineKeyboardButton("Reject", callback_data="session_reject")]
     ]
     await context.bot.send_message(
         chat_id=target_id,
-        text=f"{requester_country} درخواست جلسه داده است!",
+        text=f"{requester_country} requests a diplomatic session!",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    await query.edit_message_text("درخواست ارسال شد!")
+    await query.edit_message_text("Session request sent!")
 
 # ==============================
-# 📨 ارسال پیام/حمله
+# 📨 MESSAGE/ATTACK HANDLERS
 # ==============================
 async def show_message_countries(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش کشورهای قابل ارسال پیام"""
+    """Show countries for messaging"""
     query = update.callback_query
     await query.answer()
     
@@ -567,77 +637,116 @@ async def show_message_countries(update: Update, context: ContextTypes.DEFAULT_T
     targets = [c for c in occupied if c != country]
     
     if not targets:
-        await query.edit_message_text("کشور دیگری وجود ندارد!")
+        await query.edit_message_text("No other countries occupied!")
         return
     
     keyboard = [[InlineKeyboardButton(c, callback_data=f"msg_country_{c}")] for c in targets]
     keyboard.append([InlineKeyboardButton("Back", callback_data="main_menu")])
-    await query.edit_message_text("کشور را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text("Select recipient country:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def handle_message_country_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """انتخاب کشور برای ارسال پیام"""
+    """Handle country selection for messaging"""
     query = update.callback_query
     await query.answer()
     
-    target_country = query.data.split("_")[-1]
+    prefix = "msg_country_"
+    if not query.data.startswith(prefix):
+        await query.edit_message_text("Invalid request!")
+        return
+    target_country = query.data[len(prefix):]
     context.user_data["msg_target"] = target_country
     context.user_data["msg_type"] = "message"
     
-    await query.edit_message_text(f"پیام را برای {target_country} ارسال کنید:")
+    await query.edit_message_text(f"Send your message to {target_country}:")
 
 async def handle_attack_country_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """انتخاب کشور برای حمله"""
+    """Handle country selection for attack"""
     query = update.callback_query
     await query.answer()
     
-    target_country = query.data.split("_")[-1]
+    prefix = "msg_country_"  # we reuse the same callback format
+    if not query.data.startswith(prefix):
+        await query.edit_message_text("Invalid request!")
+        return
+    target_country = query.data[len(prefix):]
     context.user_data["msg_target"] = target_country
     context.user_data["msg_type"] = "attack"
     
-    await query.edit_message_text(f"شرح حمله به {target_country} را ارسال کنید:")
+    await query.edit_message_text(f"Describe your attack on {target_country}:")
 
 async def handle_message_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت متن ارسالی"""
+    """Handle message/attack text"""
+    # This function is now used for actual message sending and also for other textual inputs
     user_id = update.effective_user.id
     text = update.message.text
+    # Determine message type from context.user_data (set earlier when user selected a target)
     msg_type = context.user_data.get("msg_type")
     target_country = context.user_data.get("msg_target")
     
+    # If user is sending research or army requests (set by callback handlers)
+    if context.user_data.get("awaiting_research"):
+        # Example: store research somewhere or send to admin
+        await send_to_admin(context, f"Research from user {user_id}:\n{text}")
+        context.user_data["awaiting_research"] = False
+        await update.message.reply_text("Research report received!")
+        await show_main_menu(update, context)
+        return
+    
+    if context.user_data.get("awaiting_army_request"):
+        # Example: forward army request to admin
+        await send_to_admin(context, f"Army request from user {user_id}:\n{text}")
+        context.user_data["awaiting_army_request"] = False
+        await update.message.reply_text("Army request received!")
+        await show_main_menu(update, context)
+        return
+    
     if not msg_type or not target_country:
-        await update.message.reply_text("وضعیت نامعتبر!")
+        await update.message.reply_text("Invalid state! Use the menu to start a message or attack.")
         return
     
     sender_country = await get_country_by_user(user_id)
     
+    # Get target user ID
     async with aiosqlite.connect("game.db") as db:
         async with db.execute("SELECT user_id FROM users WHERE country = ?", (target_country,)) as cursor:
             row = await cursor.fetchone()
             if not row:
-                await update.message.reply_text("کشور یافت نشد!")
+                await update.message.reply_text("Target country not found!")
+                # clear state
+                context.user_data.pop("msg_type", None)
+                context.user_data.pop("msg_target", None)
                 return
             target_id = row[0]
     
+    # Send to target
     if msg_type == "attack":
         await context.bot.send_message(
             chat_id=target_id,
-            text=f"⚠️ حمله از {sender_country}:\n{text}"
+            text=f"⚠️ ATTACK ALERT from {sender_country}:\n{text}"
         )
-        await send_to_admin(context, f"⚠️ حمله: {sender_country} → {target_country}\n{text}")
+        # Notify admin
+        await send_to_admin(context, 
+            f"⚠️ Attack Alert: {sender_country} → {target_country}\n{text}")
     else:
         await context.bot.send_message(
             chat_id=target_id,
-            text=f"📨 پیام از {sender_country}:\n{text}"
+            text=f"📨 Message from {sender_country}:\n{text}"
         )
-        await send_to_admin(context, f"📨 پیام: {sender_country} → {target_country}\n{text}")
+        # Notify admin
+        await send_to_admin(context, 
+            f"📨 Message from {sender_country} to {target_country}:\n{text}")
     
-    await update.message.reply_text("پیام ارسال شد!")
+    # Clear message state and show main menu
+    context.user_data.pop("msg_type", None)
+    context.user_data.pop("msg_target", None)
+    await update.message.reply_text("Message sent!")
     await show_main_menu(update, context)
 
 # ==============================
-# 📖 پروفایل/ارتش/تحقیق
+# 📖 PROFILE/ARMY/RESEARCH HANDLERS
 # ==============================
 async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش پروفایل"""
+    """Show user profile"""
     query = update.callback_query
     await query.answer()
     
@@ -645,19 +754,26 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     country = await get_country_by_user(user_id)
     
     async with aiosqlite.connect("game.db") as db:
+        # Get balance
         async with db.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)) as cursor:
-            balance = (await cursor.fetchone())[0]
+            row = await cursor.fetchone()
+            balance = row[0] if row else 0
         
+        # Get structures
         structures = {}
         async with db.execute("SELECT type, count FROM structures WHERE user_id = ?", (user_id,)) as cursor:
-            async for row in cursor:
+            rows = await cursor.fetchall()
+            for row in rows:
                 structures[row[0]] = row[1]
         
+        # Get resources
         resources = {}
         async with db.execute("SELECT resource_type, amount FROM resources WHERE user_id = ?", (user_id,)) as cursor:
-            async for row in cursor:
+            rows = await cursor.fetchall()
+            for row in rows:
                 resources[row[0]] = row[1]
     
+    # Build profile text
     text = f"Profile: {country}\n"
     text += f"Balance: ${balance:,}\n\n"
     
@@ -675,7 +791,7 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def show_army(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش ارتش"""
+    """Show army profile"""
     query = update.callback_query
     await query.answer()
     
@@ -684,89 +800,119 @@ async def show_army(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     async with aiosqlite.connect("game.db") as db:
         async with db.execute("SELECT army_text FROM users WHERE user_id = ?", (user_id,)) as cursor:
-            army_text = (await cursor.fetchone())[0]
+            row = await cursor.fetchone()
+            army_text = row[0] if row else ""
     
     text = f"Army Profile: {country}\n\n{army_text}\n\n"
-    text += "اگر درخواستی دارید، ارسال کنید:"
+    text += "If you have requests, send them:"
     
+    # Set state for next message
     context.user_data["awaiting_army_request"] = True
     await query.edit_message_text(text)
 
 async def start_research(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """شروع تحقیق"""
+    """Start research input"""
     query = update.callback_query
     await query.answer()
     
     context.user_data["awaiting_research"] = True
-    await query.edit_message_text("گزارش تحقیقاتی را ارسال کنید:")
+    await query.edit_message_text("Send your research report:")
 
 # ==============================
-# 🔧 مدیریت ادمین
+# 🔧 ADMIN HANDLERS
 # ==============================
 async def show_admin_countries(update: Update, context: ContextTypes.DEFAULT_TYPE, action):
-    """نمایش کشورهای ادمین"""
+    """Show countries for admin action"""
     query = update.callback_query
     await query.answer()
     
     occupied = await get_occupied_countries()
     if not occupied:
-        await query.edit_message_text("کشوری وجود ندارد!")
+        await query.edit_message_text("No countries occupied!")
         return
     
     keyboard = [[InlineKeyboardButton(c, callback_data=f"admin_{action}_{c}")] for c in occupied]
     keyboard.append([InlineKeyboardButton("Back", callback_data="admin_menu")])
-    await query.edit_message_text("کشور را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text("Select country:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def handle_admin_resources(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت منابع توسط ادمین"""
+    """Show resources for admin editing"""
     query = update.callback_query
     await query.answer()
     
-    country = query.data.split("_")[-1]
+    prefix = "admin_resources_"
+    if not query.data.startswith(prefix):
+        await query.edit_message_text("Invalid request!")
+        return
+    country = query.data[len(prefix):]
     context.user_data["admin_country"] = country
     context.user_data["admin_action"] = "resources"
     
+    # Get user ID
     async with aiosqlite.connect("game.db") as db:
         async with db.execute("SELECT user_id FROM users WHERE country = ?", (country,)) as cursor:
-            user_id = (await cursor.fetchone())[0]
+            row = await cursor.fetchone()
+            user_id = row[0] if row else None
         
+        if not user_id:
+            await query.edit_message_text("Country not found!")
+            return
+        
+        # Get resources
         resources = {}
         async with db.execute("SELECT resource_type, amount FROM resources WHERE user_id = ?", (user_id,)) as cursor:
-            async for row in cursor:
+            rows = await cursor.fetchall()
+            for row in rows:
                 resources[row[0]] = row[1]
     
+    # Build message
     text = f"Resources for {country}:\n"
     for res, amount in resources.items():
         text += f"- {res}: {amount:.2f}\n"
     
+    # Build keyboard
     keyboard = [[InlineKeyboardButton(res, callback_data=f"admin_edit_res_{res}")] for res in resources.keys()]
     keyboard.append([InlineKeyboardButton("Back", callback_data="admin_resources_countries")])
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def handle_admin_structures(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت سازه‌ها توسط ادمین"""
+    """Show structures for admin editing"""
     query = update.callback_query
     await query.answer()
     
-    country = query.data.split("_")[-1]
+    prefix = "admin_structures_"
+    if not query.data.startswith(prefix):
+        await query.edit_message_text("Invalid request!")
+        return
+    country = query.data[len(prefix):]
     context.user_data["admin_country"] = country
     context.user_data["admin_action"] = "structures"
     
+    # Get user ID
     async with aiosqlite.connect("game.db") as db:
         async with db.execute("SELECT user_id FROM users WHERE country = ?", (country,)) as cursor:
-            user_id = (await cursor.fetchone())[0]
+            row = await cursor.fetchone()
+            user_id = row[0] if row else None
         
+        if not user_id:
+            await query.edit_message_text("Country not found!")
+            return
+        
+        # Get structures
         structures = {}
         async with db.execute("SELECT type, count FROM structures WHERE user_id = ?", (user_id,)) as cursor:
-            async for row in cursor:
+            rows = await cursor.fetchall()
+            for row in rows:
                 structures[row[0]] = row[1]
     
+    # Build message
     text = f"Structures for {country}:\n"
     for struct_id, count in structures.items():
         struct_info = NON_CITY_STRUCTURES.get(struct_id) or CITY_STRUCTURES.get(struct_id)
         if struct_info:
             text += f"- {struct_info['name']}: {count}\n"
     
+    # Build keyboard
     keyboard = []
     for struct_id in structures.keys():
         struct_info = NON_CITY_STRUCTURES.get(struct_id) or CITY_STRUCTURES.get(struct_id)
@@ -779,14 +925,15 @@ async def handle_admin_structures(update: Update, context: ContextTypes.DEFAULT_
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 # ==============================
-# 🔄 مدیریت دکمه‌ها
+# 🔄 CALLBACK HANDLER
 # ==============================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت تمام دکمه‌ها"""
+    """Main callback query handler"""
     query = update.callback_query
     await query.answer()
     data = query.data
     
+    # Main menu navigation
     if data == "main_menu":
         await show_main_menu(update, context)
         return
@@ -803,6 +950,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start_research(update, context)
         return
     
+    # Admin country selection
     if data == "admin_resources":
         await show_admin_countries(update, context, "resources")
         return
@@ -816,6 +964,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_admin_countries(update, context, "army")
         return
     
+    # Handle specific actions
     if data.startswith("non_city_structures"):
         await show_non_city_structures(update, context)
         return
@@ -838,13 +987,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_message_countries(update, context)
         return
     elif data.startswith("msg_country_"):
-        await handle_message_country_selection(update, context)
+        # Could be for message or attack; we use msg flow (attack sets msg_type earlier)
+        # Determine if this was triggered from attack flow
+        if context.user_data.get("attack_mode"):
+            # attack flow
+            await handle_attack_country_selection(update, context)
+            context.user_data.pop("attack_mode", None)
+        else:
+            await handle_message_country_selection(update, context)
         return
     elif data == "attack":
-        await show_message_countries(update, context)
+        await show_message_countries(update, context)  # Reuse country selector
+        # Override callback data handling
         context.user_data["attack_mode"] = True
         return
     
+    # Admin actions
     if data.startswith("admin_resources_") and not data.startswith("admin_edit_res_"):
         await handle_admin_resources(update, context)
         return
@@ -853,27 +1011,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 # ==============================
-# 🚀 اجرای اصلی
+# 🚀 MAIN FUNCTION
 # ==============================
 async def main():
-    """تابع اصلی راه‌اندازی ربات"""
+    """Main application entry point"""
     await init_db()
     
     application = Application.builder().token(BOT_TOKEN).build()
     
+    # Handlers
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_password))
+    # Single text handler that dispatches internally
+    application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, text_handler))
     application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, handle_message_text))
     
-    print("ربات شروع شد...")
+    print("Bot started...")
     await application.run_polling()
 
 # ==============================
-# 🧠 اجرای برنامه
+# 🧠 RUN APPLICATION (Fixed for Windows and Railway)
 # ==============================
 if __name__ == "__main__":
     if sys.platform == 'win32':
+        # Set the event loop policy for Windows
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     
     asyncio.run(main())
