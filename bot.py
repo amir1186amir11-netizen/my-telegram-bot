@@ -925,7 +925,9 @@ if __name__ == "__main__":
         # Set the event loop policy for Windows
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     
-    asyncio.run(main())    {"Japan 🇯🇵": 800_000_000,
+    asyncio.run(main())
+    SET_EVENT_LOOP = {
+    "Japan 🇯🇵": 800_000_000,
     "Germany 🇩🇪": 800_000_000,
     "Italy 🇮🇹": 700_000_000,
     "Mexico 🇲🇽": 500_000_000,
@@ -1792,4 +1794,5 @@ if __name__ == "__main__":
     
 
     asyncio.run(main())
+
 
